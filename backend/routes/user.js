@@ -4,9 +4,51 @@ const { authenticateToken } = require("../middleware/auth");
 
 const router = express.Router();
 
+router.get("/profile", authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        const user = await psql`
+            SELECT id, email, name, phone, created_at
+            FROM users
+            WHERE id = ${userId} AND deleted = false
+        `;
+
+        if (user.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Profile fetched successfully",
+            data: user[0]
+        });
+    } catch (error) {
+        console.error("Error fetching profile:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
 router.get("/recent-parked-cars", authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 5;
+        const offset = (page - 1) * limit;
+
+        const countResult = await psql`
+            SELECT COUNT(*) as total
+            FROM parked_cars pc
+            WHERE pc.user_id = ${userId} AND pc.deleted = false
+        `;
+        const totalCount = parseInt(countResult[0].total);
+        const totalPages = Math.ceil(totalCount / limit);
 
         const recentParkedCars = await psql`
             SELECT 
@@ -26,23 +68,40 @@ router.get("/recent-parked-cars", authenticateToken, async (req, res) => {
                     'name', ps.name,
                     'location', ps.location,
                     'capacity', ps.capacity
-                ) AS parking_spot
+                ) AS parking_spot,
+                json_build_object(
+                    'id', p.id,
+                    'amount', p.amount,
+                    'payment_type', p.payment_type,
+                    'status', p.status,
+                    'created_at', p.created_at
+                ) AS payment
             FROM parked_cars pc
             INNER JOIN cars c ON pc.car_id = c.id
             INNER JOIN parking_spots ps ON pc.parking_spot_id = ps.id
+            LEFT JOIN payments p ON p.parked_car_id = pc.id
             WHERE pc.user_id = ${userId} 
                 AND pc.deleted = false
             ORDER BY pc.created_at DESC
-            LIMIT 5
+            LIMIT ${limit}
+            OFFSET ${offset}
         `;
 
         res.status(200).json({
             success: true,
             message: "Recent parked cars fetched successfully",
-            data: recentParkedCars
+            data: recentParkedCars,
+            pagination: {
+                currentPage: page,
+                totalPages,
+                totalCount,
+                limit,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1
+            }
         });
     } catch (error) {
-        console.error("Error fetching recent parked cars:", error);
+        console.error("Error fetching paginated parked cars:", error);
         res.status(500).json({
             success: false,
             message: "Internal server error"
@@ -317,7 +376,8 @@ router.get("/payments", authenticateToken, async (req, res) => {
                 ps.location AS parking_location,
                 c.brand AS car_brand,
                 c.model AS car_model,
-                c.license_plate AS car_license_plate
+                c.license_plate AS car_license_plate,
+                ps.name AS parking_spot_name
             FROM payments p
             INNER JOIN parked_cars pc ON p.parked_car_id = pc.id
             INNER JOIN cars c ON pc.car_id = c.id
@@ -333,6 +393,69 @@ router.get("/payments", authenticateToken, async (req, res) => {
         });
     } catch (error) {
         console.error("Error fetching payments:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
+router.get("/active-parked-car", authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        const activeParkedCar = await psql`
+            SELECT 
+                pc.id,
+                pc.status,
+                pc.parked_at,
+                pc.parked_pos,
+                pc.created_at,
+                json_build_object(
+                    'id', c.id,
+                    'brand', c.brand,
+                    'model', c.model,
+                    'license_plate', c.license_plate
+                ) AS car,
+                json_build_object(
+                    'id', ps.id,
+                    'name', ps.name,
+                    'location', ps.location,
+                    'capacity', ps.capacity
+                ) AS parking_spot,
+                json_build_object(
+                    'id', p.id,
+                    'amount', p.amount,
+                    'payment_type', p.payment_type,
+                    'status', p.status,
+                    'created_at', p.created_at
+                ) AS payment
+            FROM parked_cars pc
+            INNER JOIN cars c ON pc.car_id = c.id
+            INNER JOIN parking_spots ps ON pc.parking_spot_id = ps.id
+            LEFT JOIN payments p ON p.parked_car_id = pc.id
+            WHERE pc.user_id = ${userId} 
+                AND pc.deleted = false
+                AND pc.status != 'RETRIEVED'
+            ORDER BY pc.created_at ASC
+            LIMIT 1
+        `;
+
+        if (activeParkedCar.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No active parked car found",
+                data: []
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Active parked car fetched successfully",
+            data: activeParkedCar[0]
+        });
+    } catch (error) {
+        console.error("Error fetching active parked car:", error);
         res.status(500).json({
             success: false,
             message: "Internal server error"

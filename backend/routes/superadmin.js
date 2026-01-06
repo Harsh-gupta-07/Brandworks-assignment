@@ -4,7 +4,6 @@ const { authenticateToken } = require("../middleware/auth");
 const isSuperAdmin = require("../middleware/isSuperAdmin");
 const router = express.Router();
 
-// Get all parking spots for the dropdown
 router.get("/parking-spots", authenticateToken, isSuperAdmin, async (req, res) => {
     try {
         const parkingSpots = await psql`
@@ -28,7 +27,6 @@ router.get("/parking-spots", authenticateToken, isSuperAdmin, async (req, res) =
     }
 });
 
-// Get overview statistics (today's performance + overall statistics)
 router.get("/overview/:parkingSpotId", authenticateToken, isSuperAdmin, async (req, res) => {
     try {
         const { parkingSpotId } = req.params;
@@ -95,7 +93,7 @@ router.get("/overview/:parkingSpotId", authenticateToken, isSuperAdmin, async (r
             FROM parked_cars
             WHERE parking_spot_id = ${parkingSpotId}
                 AND deleted = false
-                AND status IN ('PARKING', 'PARKED')
+                AND status IN ('PARKING', 'PARKED','RETRIEVE')
         `;
 
         res.status(200).json({

@@ -1,19 +1,17 @@
 import React from 'react'
 import { Pencil, Car, FileText, HelpCircle, ChevronRight } from "lucide-react";
+import { useAuth } from "../app/context/AuthContext";
+
 
 function SettingsMain({ setActiveView }) {
-    const user = {
-        name: "John Doe",
-        phone: "+91 98765 43210",
-        initial: "J",
-    };
+    const { user } = useAuth();
 
     const menuItems = [
         {
             id: "vehicles",
             icon: Car,
             title: "Manage Vehicles",
-            subtitle: "2 vehicles saved",
+            subtitle: "Saved Vehicles",
         },
         {
             id: "transactions",
@@ -34,7 +32,7 @@ function SettingsMain({ setActiveView }) {
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xl font-semibold">{user.initial}</span>
+                            <span className="text-white text-xl font-semibold">{user.name[0]}</span>
                         </div>
                         <div>
                             <h2 className="text-lg font-semibold text-slate-900">{user.name}</h2>

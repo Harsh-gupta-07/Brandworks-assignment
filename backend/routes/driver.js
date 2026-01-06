@@ -7,7 +7,8 @@ const router = express.Router();
 router.get("/parking-cars", authenticateToken, isDriver, async (req, res) => {
     try {
         const parkingSpotId = req.driver.parking_spot_id;
-
+        const driverId = req.driver.id;
+        // console.log(driverId);
         const parkedCars = await psql`
             SELECT 
                 pc.id,
@@ -30,7 +31,8 @@ router.get("/parking-cars", authenticateToken, isDriver, async (req, res) => {
             INNER JOIN users u ON pc.user_id = u.id
             WHERE pc.parking_spot_id = ${parkingSpotId}
                 AND pc.deleted = false
-                AND (pc.status = 'PARKING' or pc.status="RETRIEVE")
+                AND (pc.status = 'PARKING' OR pc.status = 'RETRIEVE')
+                AND pc.driver_id = ${driverId}
             ORDER BY pc.parked_at DESC
         `;
 
@@ -75,8 +77,8 @@ router.get("/unassigned-cars", authenticateToken, isDriver, async (req, res) => 
             INNER JOIN users u ON pc.user_id = u.id
             WHERE pc.parking_spot_id = ${parkingSpotId}
                 AND pc.deleted = false
-                AND pc.status = 'PARKING' or pc.status="RETRIEVE")
                 AND pc.driver_id IS NULL
+                AND pc.status != 'RETRIEVED'
             ORDER BY pc.parked_at DESC
         `;
 
@@ -95,4 +97,105 @@ router.get("/unassigned-cars", authenticateToken, isDriver, async (req, res) => 
 });
 
 
+
+router.put("/update-status/:parkedCarId", authenticateToken, isDriver, async (req, res) => {
+    try {
+        const { parkedCarId } = req.params;
+        const { status } = req.body;
+        const driverId = req.driver.id;
+
+        const validStatuses = ['PARKING', 'PARKED', 'RETRIEVE', 'RETRIEVED'];
+        if (status && !validStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid status. Must be one of: PARKING, PARKED, RETRIEVE, RETRIEVED"
+            });
+        }
+
+
+
+        const updatedCar = await psql`
+            UPDATE parked_cars
+            SET 
+                status = ${status.toUpperCase()},
+                driver_id = ${driverId},
+                retrieved_at = ${status.toUpperCase() === 'RETRIEVED' ? psql`NOW()` : psql`retrieved_at`},
+                updated_at = NOW()
+            WHERE id = ${parkedCarId}
+                AND deleted = false
+            RETURNING *
+        `;
+
+        if (updatedCar.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Parked car not found"
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Parked car status updated successfully",
+            data: updatedCar[0]
+        });
+    } catch (error) {
+        console.error("Error updating parked car status:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
+router.put("/assign/:parkedCarId", authenticateToken, isDriver, async (req, res) => {
+    try {
+        const { parkedCarId } = req.params;
+        const driverId = req.driver.id;
+
+        const car = await psql`
+            SELECT * FROM parked_cars
+            WHERE id = ${parkedCarId}
+                AND deleted = false
+        `;
+
+        if (car.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Parked car not found"
+            });
+        }
+
+        if (car[0].driver_id !== null) {
+            return res.status(400).json({
+                success: false,
+                message: "This car is already assigned to a driver"
+            });
+        }
+
+        const updatedCar = await psql`
+            UPDATE parked_cars
+            SET 
+                driver_id = ${driverId},
+                updated_at = NOW()
+            WHERE id = ${parkedCarId}
+                AND deleted = false
+            RETURNING *
+        `;
+
+        res.status(200).json({
+            success: true,
+            message: "Assignment accepted successfully",
+            data: updatedCar[0]
+        });
+    } catch (error) {
+        console.error("Error assigning driver:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
+
 module.exports = router;
+

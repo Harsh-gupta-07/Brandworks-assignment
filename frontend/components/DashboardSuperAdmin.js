@@ -1,59 +1,152 @@
 "use client";
 
 import { ChevronLeft, ChevronDown, MapPin, Calendar, TrendingUp, Ticket, IndianRupee, Car, CheckCircle, XCircle, Clock } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function DashboardSuperAdmin({ onBack }) {
     const [activeTab, setActiveTab] = useState("overview");
-    const [selectedSite, setSelectedSite] = useState("Phoenix Mall - Lower Parel");
+    const [selectedSite, setSelectedSite] = useState("");
     const [showSiteDropdown, setShowSiteDropdown] = useState(false);
+    const [sites, setSites] = useState([]);
+    const [dashboardData, setDashboardData] = useState(null);
+    const [pendingApprovals, setPendingApprovals] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [overviewLoading, setOverviewLoading] = useState(false);
 
-    const sites = [
-        { id: 1, name: "Phoenix Mall - Lower Parel", address: "Lower Parel, Mumbai" },
-        { id: 2, name: "Inorbit Mall - Malad", address: "Malad West, Mumbai" },
-        { id: 3, name: "R City Mall - Ghatkopar", address: "Ghatkopar West, Mumbai" },
-        { id: 4, name: "Nexus Seawoods", address: "Navi Mumbai" },
-    ];
-
-    const currentSite = sites.find(s => s.name === selectedSite) || sites[0];
-
-    const todayStats = {
-        ticketsIssued: 87,
-        collection: 13050,
+    const fetchSites = async () => {
+        try {
+            const token = sessionStorage.getItem("authToken");
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/superadmin/parking-spots`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (data.success) {
+                setSites(data.data);
+                if (data.data.length > 0 && !selectedSite) {
+                    setSelectedSite(data.data[1].name);
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching sites:", error);
+        }
     };
 
-    const overallStats = {
-        totalTickets: 1247,
-        totalCollection: 186450,
-        activeParking: 45,
+    const fetchOverview = async () => {
+        if (!selectedSite || sites.length === 0) return;
+
+        const site = sites.find(s => s.name === selectedSite);
+        if (!site) return;
+
+        setOverviewLoading(true);
+        try {
+            const token = sessionStorage.getItem("authToken");
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/superadmin/overview/${site.id}`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (data.success) {
+                setDashboardData(data.data);
+            }
+        } catch (error) {
+            console.error("Error fetching overview:", error);
+        } finally {
+            setOverviewLoading(false);
+        }
     };
 
-    const pendingApprovals = [
-        {
-            id: 1,
-            type: "New Manager",
-            name: "Ramesh Verma",
-            site: "Phoenix Mall - Lower Parel",
-            date: "5 Jan, 2026",
-            status: "pending",
-        },
-        {
-            id: 2,
-            type: "New Driver",
-            name: "Akash Patel",
-            site: "Inorbit Mall - Malad",
-            date: "4 Jan, 2026",
-            status: "pending",
-        },
-        {
-            id: 3,
-            type: "Site Request",
-            name: "New Parking Zone B",
-            site: "R City Mall - Ghatkopar",
-            date: "3 Jan, 2026",
-            status: "pending",
-        },
-    ];
+    const fetchPendingApprovals = async () => {
+        try {
+            const token = sessionStorage.getItem("authToken");
+
+            const managersRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/superadmin/pending-approvals`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            const managersData = await managersRes.json();
+
+            const driversRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/superadmin/pending-drivers`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            const driversData = await driversRes.json();
+
+            let managers = managersData.success ? managersData.data.map(m => ({
+                id: m.id,
+                type: "New Manager",
+                name: m.user.name,
+                site: m.parking_spot.name,
+                date: new Date(m.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+                rawDate: m.created_at,
+                source: 'manager'
+            })) : [];
+
+            let drivers = driversData.success ? driversData.data.map(d => ({
+                id: d.id,
+                type: "New Driver",
+                name: d.user.name,
+                site: d.parking_spot.name,
+                date: new Date(d.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+                rawDate: d.created_at,
+                source: 'driver'
+            })) : [];
+
+            const allApprovals = [...managers, ...drivers].sort((a, b) => new Date(a.rawDate) - new Date(b.rawDate));
+            setPendingApprovals(allApprovals);
+            setLoading(false);
+
+        } catch (error) {
+            console.error("Error fetching pending approvals:", error);
+            setLoading(false);
+        }
+    };
+
+    const handleApprovalAction = async (id, source, action) => {
+        try {
+            const token = sessionStorage.getItem("authToken");
+            const endpoint = source === 'manager'
+                ? `/api/v1/superadmin/${action}-manager/${id}`
+                : `/api/v1/superadmin/${action}-driver/${id}`;
+
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                fetchPendingApprovals();
+            }
+        } catch (error) {
+            console.error(`Error ${action}ing ${source}:`, error);
+        }
+    };
+
+    useEffect(() => {
+        fetchSites();
+    }, []);
+
+    useEffect(() => {
+        if (selectedSite && sites.length > 0) {
+            fetchOverview();
+        }
+    }, [selectedSite, sites]);
+
+    useEffect(() => {
+        if (activeTab === "approvals") {
+            fetchPendingApprovals();
+        }
+    }, [activeTab]);
+
+    const currentSite = sites.find(s => s.name === selectedSite) || sites[0] || {};
+
+    const todayStats = dashboardData ? {
+        ticketsIssued: dashboardData.todays_performance.tickets_issued,
+        collection: dashboardData.todays_performance.collection,
+    } : { ticketsIssued: 0, collection: 0 };
+
+    const overallStats = dashboardData ? {
+        totalTickets: dashboardData.overall_statistics.total_tickets,
+        totalCollection: dashboardData.overall_statistics.total_collection,
+        activeParking: dashboardData.overall_statistics.active_parking,
+    } : { totalTickets: 0, totalCollection: 0, activeParking: 0 };
 
     return (
         <div className="pb-32 bg-slate-50 min-h-screen">
@@ -106,7 +199,7 @@ export default function DashboardSuperAdmin({ onBack }) {
                                     <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
                                         <MapPin size={16} className="text-purple-600" />
                                     </div>
-                                    <span className="text-slate-900 font-medium">{selectedSite}</span>
+                                    <span className="text-slate-900 font-medium">{selectedSite || "Select Site"}</span>
                                 </div>
                                 <ChevronDown size={20} className={`text-slate-400 transition-transform ${showSiteDropdown ? 'rotate-180' : ''}`} />
                             </button>
@@ -126,7 +219,7 @@ export default function DashboardSuperAdmin({ onBack }) {
                                             <MapPin size={16} className="text-slate-400" />
                                             <div className="text-left">
                                                 <p className="text-slate-900 font-medium text-sm">{site.name}</p>
-                                                <p className="text-slate-500 text-xs">{site.address}</p>
+                                                <p className="text-slate-500 text-xs">{site.location}</p>
                                             </div>
                                         </button>
                                     ))}
@@ -135,58 +228,67 @@ export default function DashboardSuperAdmin({ onBack }) {
                         </div>
                     </div>
 
-                    <div className="mt-6">
-                        <div className="flex items-center gap-2 mb-3">
-                            <Calendar size={16} className="text-slate-500" />
-                            <h2 className="text-slate-900 font-semibold">Today's Performance</h2>
+                    {overviewLoading ? (
+                        <div className="flex flex-col items-center justify-center py-16">
+                            <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mb-4"></div>
+                            <p className="text-slate-500 text-sm">Loading overview data...</p>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
-                                <p className="text-slate-500 text-sm mb-1">Tickets Issued</p>
-                                <p className="text-3xl font-bold text-purple-600">{todayStats.ticketsIssued}</p>
+                    ) : (
+                        <>
+                            <div className="mt-6">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Calendar size={16} className="text-slate-500" />
+                                    <h2 className="text-slate-900 font-semibold">Today's Performance</h2>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
+                                        <p className="text-slate-500 text-sm mb-1">Tickets Issued</p>
+                                        <p className="text-3xl font-bold text-purple-600">{todayStats.ticketsIssued}</p>
+                                    </div>
+                                    <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
+                                        <p className="text-slate-500 text-sm mb-1">Collection</p>
+                                        <p className="text-3xl font-bold text-purple-600">₹{todayStats.collection.toLocaleString()}</p>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
-                                <p className="text-slate-500 text-sm mb-1">Collection</p>
-                                <p className="text-3xl font-bold text-purple-600">₹{todayStats.collection.toLocaleString()}</p>
-                            </div>
-                        </div>
-                    </div>
 
-                    <div className="mt-6">
-                        <div className="flex items-center gap-2 mb-3">
-                            <TrendingUp size={16} className="text-slate-500" />
-                            <h2 className="text-slate-900 font-semibold">Overall Statistics</h2>
-                        </div>
-                        <div className="space-y-3">
-                            <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
-                                        <Ticket size={18} className="text-blue-600" />
-                                    </div>
-                                    <span className="text-slate-600">Total Tickets</span>
+                            <div className="mt-6">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <TrendingUp size={16} className="text-slate-500" />
+                                    <h2 className="text-slate-900 font-semibold">Overall Statistics</h2>
                                 </div>
-                                <span className="text-slate-900 font-bold text-xl">{overallStats.totalTickets.toLocaleString()}</span>
-                            </div>
-                            <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
-                                        <IndianRupee size={18} className="text-green-600" />
+                                <div className="space-y-3">
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                                                <Ticket size={18} className="text-blue-600" />
+                                            </div>
+                                            <span className="text-slate-600">Total Tickets</span>
+                                        </div>
+                                        <span className="text-slate-900 font-bold text-xl">{overallStats.totalTickets.toLocaleString()}</span>
                                     </div>
-                                    <span className="text-slate-600">Total Collection</span>
-                                </div>
-                                <span className="text-slate-900 font-bold text-xl">₹{overallStats.totalCollection.toLocaleString()}</span>
-                            </div>
-                            <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
-                                        <MapPin size={18} className="text-purple-600" />
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+                                                <IndianRupee size={18} className="text-green-600" />
+                                            </div>
+                                            <span className="text-slate-600">Total Collection</span>
+                                        </div>
+                                        <span className="text-slate-900 font-bold text-xl">₹{overallStats.totalCollection.toLocaleString()}</span>
                                     </div>
-                                    <span className="text-slate-600">Active Parking</span>
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+                                                <MapPin size={18} className="text-purple-600" />
+                                            </div>
+                                            <span className="text-slate-600">Active Parking</span>
+                                        </div>
+                                        <span className="text-slate-900 font-bold text-xl">{overallStats.activeParking}</span>
+                                    </div>
                                 </div>
-                                <span className="text-slate-900 font-bold text-xl">{overallStats.activeParking}</span>
                             </div>
-                        </div>
-                    </div>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -202,7 +304,7 @@ export default function DashboardSuperAdmin({ onBack }) {
                     <div className="space-y-4">
                         {pendingApprovals.map((approval) => (
                             <div
-                                key={approval.id}
+                                key={`${approval.source}-${approval.id}`}
                                 className="bg-white rounded-2xl border border-slate-200 p-4"
                             >
                                 <div className="flex items-start justify-between">
@@ -220,11 +322,17 @@ export default function DashboardSuperAdmin({ onBack }) {
                                 </div>
 
                                 <div className="flex gap-3 mt-4">
-                                    <button className="flex-1 py-2.5 bg-emerald-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors">
+                                    <button
+                                        onClick={() => handleApprovalAction(approval.id, approval.source, 'approve')}
+                                        className="flex-1 py-2.5 bg-emerald-500 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors"
+                                    >
                                         <CheckCircle size={16} />
                                         Approve
                                     </button>
-                                    <button className="flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:bg-slate-200 transition-colors border border-slate-200">
+                                    <button
+                                        onClick={() => handleApprovalAction(approval.id, approval.source, 'reject')}
+                                        className="flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:bg-slate-200 transition-colors border border-slate-200"
+                                    >
                                         <XCircle size={16} />
                                         Reject
                                     </button>

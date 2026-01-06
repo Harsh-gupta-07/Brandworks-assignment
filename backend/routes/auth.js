@@ -40,7 +40,7 @@ router.post("/signup", async (req, res) => {
                 userId: newUser[0].id,
             },
             process.env.JWT_SECRET,
-            { expiresIn: "30d" }
+            { expiresIn: "7d" }
         );
 
         res.status(201).json({
@@ -100,7 +100,7 @@ router.post("/login", async (req, res) => {
                 userId: user.id,
             },
             process.env.JWT_SECRET,
-            { expiresIn: "30d" }
+            { expiresIn: "7d" }
         );
 
         res.status(200).json({

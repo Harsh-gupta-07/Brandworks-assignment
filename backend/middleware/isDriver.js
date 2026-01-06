@@ -9,7 +9,7 @@ const isDriver = async (req, res, next) => {
             WHERE id = ${userId}
         `;
 
-        if (role[0].role !== 'DRIVER') {
+        if (role[0].role !== 'DRIVER' && role[0].role !== 'SUPERADMIN' && role[0].role !== 'MANAGER') {
             return res.status(403).json({
                 success: false,
                 message: "Access denied. Driver role required."
@@ -21,6 +21,7 @@ const isDriver = async (req, res, next) => {
             FROM drivers d
             WHERE d.user_id = ${userId} AND d.deleted = false
         `;
+        // console.log(driver);
 
         if (driver.length === 0) {
             return res.status(404).json({

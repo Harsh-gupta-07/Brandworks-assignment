@@ -408,4 +408,117 @@ router.get("/drivers", authenticateToken, isManager, async (req, res) => {
     }
 });
 
+router.put("/assign-driver", authenticateToken, isManager, async (req, res) => {
+    try {
+        const parkingSpotId = req.manager.parking_spot_id;
+        const { parked_car_id, driver_id } = req.body;
+
+        if (!parked_car_id) {
+            return res.status(400).json({
+                success: false,
+                message: "Parked car ID is required"
+            });
+        }
+
+        const parkedCar = await psql`
+            SELECT id, parking_spot_id, status
+            FROM parked_cars
+            WHERE id = ${parked_car_id}
+                AND deleted = false
+        `;
+
+        if (parkedCar.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Parked car not found"
+            });
+        }
+
+        if (parkedCar[0].parking_spot_id !== parkingSpotId) {
+            return res.status(403).json({
+                success: false,
+                message: "Access denied. This parked car does not belong to your parking spot"
+            });
+        }
+
+        if (driver_id) {
+            const driver = await psql`
+                SELECT id, parking_spot_id, approved
+                FROM drivers
+                WHERE id = ${driver_id}
+                    AND deleted = false
+            `;
+
+            if (driver.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Driver not found"
+                });
+            }
+
+            if (!driver[0].approved) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Driver is not approved"
+                });
+            }
+
+            if (driver[0].parking_spot_id !== parkingSpotId) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Driver does not belong to your parking spot"
+                });
+            }
+        }
+
+        await psql`
+            UPDATE parked_cars
+            SET driver_id = ${driver_id || null}
+            WHERE id = ${parked_car_id}
+        `;
+
+        const updatedCar = await psql`
+            SELECT 
+                pc.id,
+                pc.status,
+                pc.parked_pos,
+                pc.parked_at,
+                json_build_object(
+                    'id', c.id,
+                    'brand', c.brand,
+                    'model', c.model,
+                    'license_plate', c.license_plate
+                ) AS car,
+                json_build_object(
+                    'id', u.id,
+                    'name', u.name,
+                    'phone', u.phone
+                ) AS user,
+                json_build_object(
+                    'id', d.id,
+                    'name', du.name,
+                    'phone', du.phone
+                ) AS driver
+            FROM parked_cars pc
+            INNER JOIN cars c ON pc.car_id = c.id
+            INNER JOIN users u ON pc.user_id = u.id
+            LEFT JOIN drivers d ON pc.driver_id = d.id
+            LEFT JOIN users du ON d.user_id = du.id
+            WHERE pc.id = ${parked_car_id}
+        `;
+
+        res.status(200).json({
+            success: true,
+            message: driver_id ? "Driver assigned successfully" : "Driver unassigned successfully",
+            data: updatedCar[0]
+        });
+    } catch (error) {
+        console.error("Error assigning driver:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
 module.exports = router;

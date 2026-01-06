@@ -8,7 +8,7 @@ const isManager = async (req, res, next) => {
             WHERE id = ${userId}
         `;
 
-        if (role[0].role !== 'MANAGER') {
+        if (role[0].role !== 'MANAGER' && role[0].role !== 'SUPERADMIN') {
             return res.status(403).json({
                 success: false,
                 message: "Access denied. Manager role required."

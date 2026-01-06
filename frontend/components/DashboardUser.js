@@ -6,7 +6,7 @@ import DashHistory from "./DashHistory";
 import DashSettings from "./DashSettings";
 import ConfirmParking from "./ConfirmParking";
 import { useBottomNavState } from "../app/context/BottomNavContext";
-import { X, Car, ChevronRight, Plus, QrCode } from "lucide-react";
+import { X, Car, ChevronRight, Plus, QrCode, Loader2 } from "lucide-react";
 
 export default function DashboardUser() {
     const { activeView, setActiveView, showConfirmParking, setShowConfirmParking, showScanner, setShowScanner } = useBottomNavState();
@@ -15,10 +15,10 @@ export default function DashboardUser() {
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [showRegisterForm, setShowRegisterForm] = useState(false);
     const [newVehicle, setNewVehicle] = useState({ brand: "", model: "", plate: "" });
-    const [vehicles, setVehicles] = useState([
-        { id: 1, name: "Toyota Camry", plate: "MH 12 AB 1234" },
-        { id: 2, name: "Honda Civic", plate: "MH 14 CD 5678" },
-    ]);
+    const [vehicles, setVehicles] = useState([]);
+    const [loadingVehicles, setLoadingVehicles] = useState(false);
+    const [addingVehicle, setAddingVehicle] = useState(false);
+    const [error, setError] = useState(null);
 
     const carBrands = {
         Toyota: ["Camry", "Corolla", "Fortuner", "Innova", "Yaris"],
@@ -29,6 +29,45 @@ export default function DashboardUser() {
         Mahindra: ["Thar", "XUV700", "Scorpio", "Bolero", "XUV300"],
         Kia: ["Seltos", "Sonet", "Carnival", "Carens", "EV6"],
     };
+
+    const fetchUserCars = async () => {
+        setLoadingVehicles(true);
+        setError(null);
+        try {
+            const token = sessionStorage.getItem("authToken");
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/user/cars`, {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                }
+            });
+            const data = await response.json();
+            if (data.success) {
+                const mappedVehicles = data.data.map(car => ({
+                    id: car.id,
+                    name: `${car.brand} ${car.model}`,
+                    plate: car.license_plate,
+                    brand: car.brand,
+                    model: car.model
+                }));
+                setVehicles(mappedVehicles);
+            } else {
+                setError(data.message || "Failed to fetch vehicles");
+            }
+        } catch (err) {
+            console.error("Error fetching cars:", err);
+            setError("Failed to fetch vehicles");
+        } finally {
+            setLoadingVehicles(false);
+        }
+    };
+
+    useEffect(() => {
+        if (showVehiclePopup) {
+            fetchUserCars();
+        }
+    }, [showVehiclePopup]);
 
     const handleScanClick = () => {
         setShowScanner(true);
@@ -62,16 +101,45 @@ export default function DashboardUser() {
         setSelectedVehicle(null);
     };
 
-    const handleRegisterVehicle = () => {
+    const handleRegisterVehicle = async () => {
         if (newVehicle.brand && newVehicle.model && newVehicle.plate.trim()) {
-            const vehicle = {
-                id: Date.now(),
-                name: `${newVehicle.brand} ${newVehicle.model}`,
-                plate: newVehicle.plate.trim().toUpperCase(),
-            };
-            setVehicles([...vehicles, vehicle]);
-            setNewVehicle({ brand: "", model: "", plate: "" });
-            setShowRegisterForm(false);
+            setAddingVehicle(true);
+            setError(null);
+            try {
+                const token = sessionStorage.getItem("authToken");
+                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/user/add-car`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        brand: newVehicle.brand,
+                        model: newVehicle.model,
+                        license_plate: newVehicle.plate.trim().toUpperCase()
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    const vehicle = {
+                        id: data.data.id,
+                        name: `${data.data.brand} ${data.data.model}`,
+                        plate: data.data.license_plate,
+                        brand: data.data.brand,
+                        model: data.data.model
+                    };
+                    setVehicles([vehicle, ...vehicles]);
+                    setNewVehicle({ brand: "", model: "", plate: "" });
+                    setShowRegisterForm(false);
+                } else {
+                    setError(data.message || "Failed to add vehicle");
+                }
+            } catch (err) {
+                console.error("Error adding car:", err);
+                setError("Failed to add vehicle");
+            } finally {
+                setAddingVehicle(false);
+            }
         }
     };
 
@@ -144,24 +212,45 @@ export default function DashboardUser() {
                                     </div>
 
                                     <div className="space-y-3 mb-6">
-                                        {vehicles.map((vehicle) => (
-                                            <button
-                                                key={vehicle.id}
-                                                onClick={() => handleSelectVehicle(vehicle)}
-                                                className="w-full flex items-center gap-4 p-4 bg-slate-50 hover:bg-indigo-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all group"
-                                            >
-                                                <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
-                                                    <Car className="text-indigo-600" size={24} />
-                                                </div>
-                                                <div className="flex-1 text-left">
-                                                    <h3 className="font-semibold text-slate-800 group-hover:text-indigo-700 transition-colors">
-                                                        {vehicle.name}
-                                                    </h3>
-                                                    <p className="text-slate-500 text-sm">{vehicle.plate}</p>
-                                                </div>
-                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-400 transition-colors" size={20} />
-                                            </button>
-                                        ))}
+                                        {loadingVehicles ? (
+                                            <div className="flex items-center justify-center py-8">
+                                                <Loader2 className="text-indigo-600 animate-spin" size={32} />
+                                            </div>
+                                        ) : error ? (
+                                            <div className="text-center py-4">
+                                                <p className="text-red-500 text-sm">{error}</p>
+                                                <button
+                                                    onClick={fetchUserCars}
+                                                    className="mt-2 text-indigo-600 text-sm font-medium hover:underline"
+                                                >
+                                                    Try again
+                                                </button>
+                                            </div>
+                                        ) : vehicles.length === 0 ? (
+                                            <div className="text-center py-6">
+                                                <Car className="text-slate-300 mx-auto mb-2" size={40} />
+                                                <p className="text-slate-500 text-sm">No vehicles registered yet</p>
+                                            </div>
+                                        ) : (
+                                            vehicles.map((vehicle) => (
+                                                <button
+                                                    key={vehicle.id}
+                                                    onClick={() => handleSelectVehicle(vehicle)}
+                                                    className="w-full flex items-center gap-4 p-4 bg-slate-50 hover:bg-indigo-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all group"
+                                                >
+                                                    <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
+                                                        <Car className="text-indigo-600" size={24} />
+                                                    </div>
+                                                    <div className="flex-1 text-left">
+                                                        <h3 className="font-semibold text-slate-800 group-hover:text-indigo-700 transition-colors">
+                                                            {vehicle.name}
+                                                        </h3>
+                                                        <p className="text-slate-500 text-sm">{vehicle.plate}</p>
+                                                    </div>
+                                                    <ChevronRight className="text-slate-300 group-hover:text-indigo-400 transition-colors" size={20} />
+                                                </button>
+                                            ))
+                                        )}
                                     </div>
 
                                     {showRegisterForm ? (
@@ -203,22 +292,34 @@ export default function DashboardUser() {
                                                     className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-slate-800 uppercase"
                                                 />
                                             </div>
+                                            {error && (
+                                                <p className="text-red-500 text-sm text-center">{error}</p>
+                                            )}
                                             <div className="flex gap-3 pt-2">
                                                 <button
                                                     onClick={() => {
                                                         setShowRegisterForm(false);
                                                         setNewVehicle({ brand: "", model: "", plate: "" });
+                                                        setError(null);
                                                     }}
-                                                    className="flex-1 py-3 border border-slate-200 text-slate-600 font-semibold rounded-xl hover:bg-slate-50 transition-colors"
+                                                    disabled={addingVehicle}
+                                                    className="flex-1 py-3 border border-slate-200 text-slate-600 font-semibold rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50"
                                                 >
                                                     Cancel
                                                 </button>
                                                 <button
                                                     onClick={handleRegisterVehicle}
-                                                    disabled={!newVehicle.brand || !newVehicle.model || !newVehicle.plate.trim()}
-                                                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-semibold rounded-xl transition-colors"
+                                                    disabled={!newVehicle.brand || !newVehicle.model || !newVehicle.plate.trim() || addingVehicle}
+                                                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
                                                 >
-                                                    Add Vehicle
+                                                    {addingVehicle ? (
+                                                        <>
+                                                            <Loader2 className="animate-spin" size={18} />
+                                                            Adding...
+                                                        </>
+                                                    ) : (
+                                                        "Add Vehicle"
+                                                    )}
                                                 </button>
                                             </div>
                                         </div>
@@ -234,8 +335,9 @@ export default function DashboardUser() {
                                 </div>
                             </div>
                         </>
-                    )}
-                </div>
+                    )
+                    }
+                </div >
             )}
 
             <style jsx>{`
@@ -255,6 +357,6 @@ export default function DashboardUser() {
                     animation: slide-up 0.3s ease-out forwards;
                 }
             `}</style>
-        </div>
+        </div >
     );
 }
