@@ -9,7 +9,25 @@ async function migrate() {
     const psql = postgres(connectionString);
 
     try {
-        console.log('Starting database migration \n');
+        console.log('Starting database migration...\n');
+
+        // Drop all existing tables and types
+        console.log('Dropping existing tables and types...');
+        await psql.unsafe(`
+            DROP TABLE IF EXISTS parked_cars CASCADE;
+            DROP TABLE IF EXISTS drivers CASCADE;
+            DROP TABLE IF EXISTS managers CASCADE;
+            DROP TABLE IF EXISTS cars CASCADE;
+            DROP TABLE IF EXISTS parking_spots CASCADE;
+            DROP TABLE IF EXISTS users CASCADE;
+            DROP TYPE IF EXISTS parking_status CASCADE;
+            DROP TYPE IF EXISTS role CASCADE;
+            DROP TABLE IF EXISTS payments CASCADE;
+            DROP TYPE IF EXISTS payment_status CASCADE;
+            DROP TYPE IF EXISTS payment_method CASCADE;
+            DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+        `);
+        console.log('Dropped all existing tables and types.\n');
 
         const schemaPath = path.join(__dirname, 'schema.sql');
         const schema = fs.readFileSync(schemaPath, 'utf-8');
